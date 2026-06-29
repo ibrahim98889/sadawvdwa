@@ -22,6 +22,9 @@ def verify_bulk(request: EmailRequest, authorization: Optional[str] = Header(Non
     results = []
     binary_path = '/usr/local/bin/reacher-cli'
     
+    # Ensure binary is executable
+    os.chmod(binary_path, 0o755)
+
     summary = {"total": len(request.emails), "valid": 0, "invalid": 0, "unknown": 0}
 
     for email in request.emails:
@@ -29,11 +32,18 @@ def verify_bulk(request: EmailRequest, authorization: Optional[str] = Header(Non
             process = subprocess.run(
                 [binary_path, 'validate', email, '--json'],
                 capture_output=True,
-                text=True
+                text=True,
+                timeout=30 # Add timeout to prevent 502 due to hanging
             )
+            
+            if process.returncode != 0:
+                results.append({'email': email, 'error': process.stderr or 'Execution failed'})
+                summary['unknown'] += 1
+                continue
+
             output_json = json.loads(process.stdout.strip().split('\n')[-1])
             results.append(output_json)
-            
+
             # Update summary based on reachability
             status = output_json.get('is_reachable', 'unknown')
             if status == 'safe':
